@@ -1,16 +1,17 @@
+# Set the GTF input file used for alignment of human samples
+gtf_input="Drosophila_melanogaster.BDGP6.90.gtf"
+
 
 # Script to extract and sort genomic features (exons, introns, and UTRs) from a GTF file.
 # Usage: ./bedtools.sh
 
-# Set the GTF input file used for alignment of human samples
-gtf_input="Homo_sapiens.GRCh38.90.gtf"
 
 # Define output paths for BED files by replacing the extension in the input filename
 bed_gene="${gtf_input/.gtf/.gene.bed}"
 bed_exon="${gtf_input/.gtf/.exon.bed}"
 bed_5prime_utr="${gtf_input/.gtf/.5prime_utr.bed}"
 bed_3prime_utr="${gtf_input/.gtf/.3prime_utr.bed}"
-bed_intron="${gtf_input/.gtf/.intron_junction.bed}"
+bed_intron="${gtf_input/.gtf/.intron.bed}"
 
 # Function to process genomic features and output to BED files
 process_features() {
@@ -22,7 +23,7 @@ process_features() {
     cat "$gtf_input" | awk -v label="$feature_label" 'BEGIN {OFS="\t"} $3 == label {print $1, $4, $5, label, $10, $7}' | bedtools sort > "$output_file"
 }
 
-# Extract and sort gene features (incorrectly labeled as intron in original script)
+# Extract and sort gene features (gene is labelled as intron  here; after proccessing only introns remain)
 process_features "gene" "gene" "$bed_gene"
 
 # Extract and sort exon features
