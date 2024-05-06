@@ -23,7 +23,7 @@ process_features() {
     cat "$gtf_input" | awk -v label="$feature_label" 'BEGIN {OFS="\t"} $3 == label {print $1, $4, $5, label, $10, $7}' | bedtools sort > "$output_file"
 }
 
-# Extract and sort gene features (gene is labelled as intron  here; after proccessing only introns remain)
+# Extract and sort gene features
 process_features "gene" "gene" "$bed_gene"
 
 # Extract and sort exon features
