@@ -1,7 +1,6 @@
 # Set the GTF input file used for alignment of human samples
-gtf_input="Drosophila_melanogaster.BDGP6.90.gtf"
-
-
+gtf_input="/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/Intron_selection/Drosophila_melanogaster.BDGP6.90.gtf"
+head -n 20 "$gtf_input"
 # Script to extract and sort genomic features (exons, introns, and UTRs) from a GTF file.
 # Usage: ./bedtools.sh
 
@@ -30,18 +29,22 @@ process_features "gene" "gene" "$bed_gene"
 process_features "exon" "exon" "$bed_exon"
 
 # Extract and sort 5' UTR features
-process_features "five_prime_utr" "5prime_utr" "$bed_5prime_utr"
+process_features "five_prime_utr" "five_prime_utr" "$bed_5prime_utr"
 
 # Extract and sort 3' UTR features
-process_features "three_prime_utr" "3prime_utr" "$bed_3prime_utr"
+process_features "three_prime_utr" "three_prime_utr" "$bed_3prime_utr"
 
 # Function to subtract exons and UTRs from gene coordinates to get introns
 subtract_features() {
     echo "Subtracting features to identify introns..."
-    cat "$bed_gene" | bedtools subtract -s -a stdin -b "$bed_exon" | bedtools subtract -s -a stdin -b "$bed_5prime_utr" | bedtools subtract -s -a stdin -b "$bed_3prime_utr" | bedtools sort | bedtools merge -i stdin -s -c 4,5,6 -o distinct > "$bed_intron"
+    cat "$bed_gene" | bedtools subtract -s -a stdin -b "$bed_exon" | bedtools subtract -s -a stdin -b "$bed_5prime_utr" | bedtools subtract -s -a stdin -b "$bed_3prime_utr" | bedtools sort | bedtools merge -i stdin -s -c 4,5,6 -o distinct > introns_selected
 }
 
 # Call function to process intron subtraction and merging
 subtract_features
+
+awk -v OFS='\t' '{$4="intron"; print}' "$bed_intron" > temp && mv temp "$bed_intron"
+
+
 
 echo "Feature processing complete."
