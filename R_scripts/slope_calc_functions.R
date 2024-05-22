@@ -29,37 +29,31 @@ compute_slope <- function(x1, filt = TRUE) {
   return(slope)                  
 }
 
-filter_gene <- function(x, gen_elem, chr, chr_size_m, direc = '', sens = '') {
-  if (direc == 'all') {
-    gff_exon <- x[(x$chr == chr),]                
-  }
-  if (sens == 'minus') {
+filter_gene <- function(x, chr, strand_sense = '') {
+  if (strand_sense == 'minus') {
     gff_exon <- x[(x$chr == chr) & (x$strand == "-"),]
   }
-  if (sens == 'plus') {
+  if (strand_sense == 'plus') {
     gff_exon <- x[(x$chr == chr) & (x$strand == "+"),]
   }
-  if (direc == '') {
-    gff_exon <- x[(x$feature == gen_elem) & (x$source == 'Coding_transcript'),]
-  }                          
   return(gff_exon)
 }
 
-extract_coverage <- function(coverage_filepath, chr_size, cl) {
-  cov_data <- parLapply(cl, coverage_filepath, function(d) {
-    cat(paste(d, "\n"))
-    chipseq <- import.bedGraph(d)
-    seqlengths(chipseq) <- chr_size[levels(seqnames(chipseq))]                       
-    return(chipseq)
-  })        
-  return(cov_data)
+paralel_import_bed_graphs <- function(bedgraph_filepaths, cluster) {
+  imported_bed_graphs <- parLapply(cluster, bedgraph_filepaths, function(d) {
+    imported_bed_graph <- import.bedGraph(d)
+    #seqlengths(imported_bed_graph) <- chr_size[levels(seqnames(imported_bed_graph))]                       
+    return(imported_bed_graph)
+    
+  }) 
+  return(imported_bed_graphs)
 }
 
-get_cov_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, direc, cl) { 
+get_cov_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, cl) { 
+  
   # Get annotation
-  gff_filt <- filter_gene(gff_b, gen_elem, chr, chrsize, "all")
-  gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
-  gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
+  gff_filt_fwd <- filter_gene(x = gff_b, chr = chr, chr_size_m = chrsize, strand_sense = "plus")
+  gff_filt_rev <- filter_gene(x = gff_b, chr = chr, chr_size_m = chrsize, strand_sense = "minus")
   
   # Split by chromosome
   cov_data_chr_fwd <- lapply(1:length(cov_data_fwd), get_chr_coverage, chr, cov_data_fwd)        
@@ -85,9 +79,9 @@ get_cov_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, 
   return(gen_data)
 }
 
-
+run_chr_y_intercept_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, direc, cl) { 
+  
 # Get annotation
-gff_filt <- filter_gene(gff_b, gen_elem, chr, chrsize, "all")
 gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
 gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
 
@@ -122,10 +116,10 @@ cat(paste(chr, "\n"))
 gen_slope <- do.call(rbind, gen_slope)
 gen_slope <- cbind(gff_filt, gen_slope)        
 return(gen_slope)
+}
 
 run_chr_x_intercept_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, repli, chrsize, direc, cl) { 
   # Get annotation
-  gff_filt <- filter_gene(gff_b, gen_elem, chr, chrsize, "all")
   gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
   gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
   
@@ -167,7 +161,6 @@ run_chr_x_intercept_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_
 
 run_chr_slope_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, direc, cl) { 
     # Get annotation
-    gff_filt <- filter_gene(gff_b, gen_elem, chr, chrsize, "all")
     gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
     gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
     
