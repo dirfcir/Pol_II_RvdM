@@ -12,7 +12,7 @@ nr_of_cluster_for_paralel_computing <- 6
 cl <- makeCluster(6, outfile=str_glue("{outfolder_slope_calc}/cluster.log"))
 clusterExport(cl, ls())
 clusterEvalQ(cl, install_and_load(all_packages))
-
+rm(aa)
 bedgraph_fwd_file_pattern <- str_glue("{out_bg_folder}*Unique.str2.out.bg")
 bedgraph_fwd_filepaths <- Sys.glob(coverage_fwd_file_pattern)
 bedgraph_rev_file_pattern <- str_glue("{out_bg_folder}*Unique.str1.out.bg")
@@ -20,9 +20,9 @@ bedgraph_rev_filepaths <- Sys.glob(coverage_fwd_file_pattern)
 
 norec<-read.table(str_glue("{sj_annot_folder}no_recursiv_intron_sj.bed"))
 rec  <-read.table(str_glue("{sj_annot_folder}recursiv_intron_sj.bed"))
-gff_b<-rbind.data.frame(rec,norec)
-gff_b<-gff_b[,c(1:4,6)]
-colnames(gff_b) <- c('chr','start','end','strand', 'id')
+extracted_sj_annotation_bed_files  <- rbind.data.frame(rec,norec)
+extracted_sj_annotation_bed_files  <- extracted_sj_annotation_bed_files[,c(1:4,6)]
+colnames(extracted_sj_annotation_bed_files) <- c('chr','start','end','strand', 'id')
 
 bed_graphs_data_fwd <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_fwd_filepaths, cluster = cl)
 bed_graphs_data_rev <- paralel_import_bed_graphs(bedgraph_filepaths = coverage_rev_filepaths, cluster = cl)
