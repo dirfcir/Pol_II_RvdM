@@ -1,16 +1,18 @@
-# Set the GTF input file used for alignment of human samples
-gtf_input="/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/Intron_selection/Drosophila_melanogaster.BDGP6.90.gtf"
-head -n 20 "$gtf_input"
 # Script to extract and sort genomic features (exons, introns, and UTRs) from a GTF file.
-# Usage: ./bedtools.sh
 
+gtf_input=${1:-"/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/Intron_selection/Drosophila_melanogaster.BDGP6.90.gtf"}
+output_folder=${2:-$(dirname "$gtf_input")}
+input_file_full_name=$(basename "$gtf_input")
+input_file_name="${input_file_full_name%.*}"
 
-# Define output paths for BED files by replacing the extension in the input filename
-bed_gene="${gtf_input/.gtf/.gene.bed}"
-bed_exon="${gtf_input/.gtf/.exon.bed}"
-bed_5prime_utr="${gtf_input/.gtf/.5prime_utr.bed}"
-bed_3prime_utr="${gtf_input/.gtf/.3prime_utr.bed}"
-bed_intron="${gtf_input/.gtf/.intron.bed}"
+head -n 10 "$gtf_input"
+
+# Define output paths for BED files
+bed_gene="${output_folder}/${input_file_name}.gene.bed"
+bed_exon="${output_folder}/${input_file_name}.gene.bed"
+bed_5prime_utr="${output_folder}/${input_file_name}.5prime_utr.bed"
+bed_3prime_utr="${output_folder}/${input_file_name}.3prime_utr.bed"
+bed_intron="${output_folder}/${input_file_name}.intron.bed"
 
 # Function to process genomic features and output to BED files
 process_features() {
@@ -19,7 +21,7 @@ process_features() {
     local output_file=$3
 
     echo "Processing $feature_type..."
-    cat "$gtf_input" | awk -v label="$feature_label" 'BEGIN {OFS="\t"} $3 == label {print $1, $4, $5, label, $10, $7}' | bedtools sort > "$output_file"
+    cat "$gtf_input" | awk -v label="$feature_label" 'BEGIN {OFS="\t"} $3 == label {print $1, $4-1, $5, label, $10, $7}' | bedtools sort > "$output_file"
 }
 
 # Extract and sort gene features
@@ -34,6 +36,7 @@ process_features "five_prime_utr" "five_prime_utr" "$bed_5prime_utr"
 # Extract and sort 3' UTR features
 process_features "three_prime_utr" "three_prime_utr" "$bed_3prime_utr"
 
+
 # Function to subtract exons and UTRs from gene coordinates to get introns
 subtract_features() {
     echo "Subtracting features to identify introns..."
@@ -41,10 +44,6 @@ subtract_features() {
 }
 
 # Call function to process intron subtraction and merging
-subtract_features
-
-awk -v OFS='\t' '{$4="intron"; print}' "$bed_intron" > temp && mv temp "$bed_intron"
-
-
+awk -v OFS='\t' '{$4="intron"; print}' "$bed_gene" > temp && mv temp "$bed_intron"
 
 echo "Feature processing complete."
