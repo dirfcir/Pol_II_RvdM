@@ -1,26 +1,42 @@
 #########################################################
 ### FOR KEEPS FOR KEEPS FOR KEEPS KOR KEEPS FOR KEEPS ###
 #########################################################
-compute_y_intercept <- function(x1, filt = TRUE) {
-  if (is.null(x1)) { return(NULL) }
-  slope <- sapply(1:length(x1), function(z) { sum <- lm(as.numeric(x1[[z]]) ~ seq(1:length(x1[[z]]))); return(sum$fit[[1]]) })
-  return(as.vector(slope))
-}
-
-compute_x_intercept <- function(x1, filt = TRUE) {
-  filt_val <- 0
-  read_size <- 90
-  
+# Consolidated function to compute intercepts, slopes, and their p-values
+compute_lm_component <- function(x1, component = "slope") {
   if (is.null(x1)) { return(NULL) }
   
-  slope <- sapply(1:length(x1), function(z) { sum <- lm(as.numeric(x1[[z]]) ~ seq(1:length(x1[[z]]))); return(sum$fit[[length(x1[[z]])]]) })
-  return(as.vector(slope))
+  result <- t(sapply(1:length(x1), function(z) {
+    fit <- lm(as.numeric(x1[[z]]) ~ seq(1:length(x1[[z]])))
+    summary_fit <- summary(fit)
+    y_intercept <- fit$coefficients[1]
+    x_intercept <- fit$fitted.values[[length(x1[[z]])]]
+    slope <- summary_fit$coefficients[2, 1]
+    p_value <- summary_fit$coefficients[2, 4]  # p-value for the slope (same for the model)
+    
+    if (component == "y_intercept") {
+      return(c(y_intercept, p_value))
+    } else if (component == "x_intercept") {
+      return(c(x_intercept, p_value))
+    } else if (component == "slope") {
+      return(c(slope, p_value))
+    } else if (component == "all") {
+      return(c(y_intercept, x_intercept, slope, p_value))
+    }
+  }))
+  
+  if (component == "all") {
+    colnames(result) <- c("y_intercept", "x_intercept", "slope", "p_value")
+  } else {
+    colnames(result) <- c("value", "p_value")
+  }
+  
+  return(as.data.frame(result))
 }
 
-get_chr_coverage <- function(x, chr, cov_data) {
-  chrs1 <- cov_data[[x]][seqnames(cov_data[[x]]) == chr]
-  covs1 <- coverage(chrs1, weight = chrs1$score)[[chr]]
-  return(covs1)
+get_coverage_per_chromosome <- function(x, chromosome, cov_data) {
+  chromosome_for_calc_coverage <- cov_data[[x]][seqnames(cov_data[[x]]) == chromosome]
+  chromosome_coverage_data <- coverage(chromosome_for_calc_coverage, weight = chromosome_for_calc_coverage$score)[[chromosome]]
+  return(chromosome_coverage_data)
 }
 
 compute_slope <- function(x1, filt = TRUE) {            
@@ -29,14 +45,19 @@ compute_slope <- function(x1, filt = TRUE) {
   return(slope)                  
 }
 
-filter_gene <- function(x, chr, strand_sense = '') {
+filter_by_chromosome_and_strand <- function(intron_info_file, chromosome, strand_sense = '') {
+  
+  if (strand_sense == 'all'){
+    introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome==chromosome),]                
+  }
+  
   if (strand_sense == 'minus') {
-    gff_exon <- x[(x$chr == chr) & (x$strand == "-"),]
+    introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome_measured == chromosome) & (intron_info_file$strand_measured == "-"),]
   }
   if (strand_sense == 'plus') {
-    gff_exon <- x[(x$chr == chr) & (x$strand == "+"),]
+    introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome_measured == chromosome) & (intron_info_file$strand_measured == "+"),]
   }
-  return(gff_exon)
+  return(introns_per_strand_and_chromosome)
 }
 
 paralel_import_bed_graphs <- function(bedgraph_filepaths, cluster) {
@@ -49,153 +70,59 @@ paralel_import_bed_graphs <- function(bedgraph_filepaths, cluster) {
   return(imported_bed_graphs)
 }
 
-get_cov_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, cl) { 
+get_intron_coverages_per_chromosome <- function(chromosome, bed_graphs_data_fwd, bed_graphs_data_rev, intron_info, cl) { 
   
-  # Get annotation
-  gff_filt_fwd <- filter_gene(x = gff_b, chr = chr, chr_size_m = chrsize, strand_sense = "plus")
-  gff_filt_rev <- filter_gene(x = gff_b, chr = chr, chr_size_m = chrsize, strand_sense = "minus")
-  
-  # Split by chromosome
-  cov_data_chr_fwd <- lapply(1:length(cov_data_fwd), get_chr_coverage, chr, cov_data_fwd)        
-  cov_data_chr_rev <- lapply(1:length(cov_data_rev), get_chr_coverage, chr, cov_data_rev)
-  
-  # Extract genomic region of interest
-  size_of_annot_fwd <- nrow(gff_filt_fwd)
-  size_of_annot_rev <- nrow(gff_filt_rev)
-  
-  r_fw <- lapply(1:length(cov_data_chr_fwd), function(x) {                                                       
-    mcmapply(function(s, e) { window(cov_data_chr_fwd[[x]], s, e) }, gff_filt_fwd$start, gff_filt_fwd$end, mc.cores = 12)                                      
-  })
-  
-  r_rev <- lapply(1:length(cov_data_chr_rev), function(x) {                                                       
-    mcmapply(function(s, e) { rev(window(cov_data_chr_rev[[x]], s, e)) }, gff_filt_rev$start, gff_filt_rev$end, mc.cores = 12)       
-  })
-  
-  if (length(r_fw[[1]]) == 0) r_fw <- NULL else r_fw <- lapply(1:size_of_annot_fwd, function(y) lapply(r_fw, function(x) x[[y]]))
-  
-  if (length(r_rev[[1]]) == 0) r_rev <- NULL else r_rev <- lapply(1:size_of_annot_rev, function(y) lapply(r_rev, function(x) x[[y]]))
-  
-  gen_data <- c(r_fw, r_rev)
-  return(gen_data)
-}
-
-run_chr_y_intercept_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, direc, cl) { 
-  
-# Get annotation
-gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
-gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
-
-# Split by chromosome
-cov_data_chr_fwd <- lapply(1:length(cov_data_fwd), get_chr_coverage, chr, cov_data_fwd)        
-cov_data_chr_rev <- lapply(1:length(cov_data_rev), get_chr_coverage, chr, cov_data_rev)
-# Extract genomic region of interest
-size_of_annot_fwd <- nrow(gff_filt_fwd)
-size_of_annot_rev <- nrow(gff_filt_rev)
-
-r_fw <- lapply(1:length(cov_data_chr_fwd), function(x) {                                                       
-  mcmapply(function(s, e) { window(cov_data_chr_fwd[[x]], s, e) }, gff_filt_fwd$start, gff_filt_fwd$end, mc.cores = 12)                                      
-})
-
-r_rev <- lapply(1:length(cov_data_chr_rev), function(x) {                                                       
-  mcmapply(function(s, e) { rev(window(cov_data_chr_rev[[x]], s, e)) }, gff_filt_rev$start, gff_filt_rev$end, mc.cores = 12)       
-})
-
-if (length(r_fw[[1]]) == 0) r_fw <- NULL else r_fw <- lapply(1:size_of_annot_fwd, function(y) lapply(r_fw, function(x) x[[y]]))
-
-if (length(r_rev[[1]]) == 0) r_rev <- NULL else r_rev <- lapply(1:size_of_annot_rev, function(y) lapply(r_rev, function(x) x[[y]]))
-
-gen_data <- c(r_fw, r_rev)
-gff_filt <- rbind(gff_filt_fwd, gff_filt_rev)
-
-cat("Get slope \n")
-gen_slope <- mclapply(gen_data, compute_y_intercept, mc.cores=12)
-
-gen_slope[gen_slope == "NULL"] <- NA
-
-cat(paste(chr, "\n"))
-gen_slope <- do.call(rbind, gen_slope)
-gen_slope <- cbind(gff_filt, gen_slope)        
-return(gen_slope)
-}
-
-run_chr_x_intercept_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, repli, chrsize, direc, cl) { 
-  # Get annotation
-  gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
-  gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
+  # Sub select introns for chromosome and strand
+  introns_per_strand_and_chromosome_fwd <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "plus")
+  introns_per_strand_and_chromosome_rev <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "minus")
   
   # Split by chromosome
-  cov_data_chr_fwd <- lapply(1:length(cov_data_fwd), get_chr_coverage, chr, cov_data_fwd)        
-  cov_data_chr_rev <- lapply(1:length(cov_data_rev), get_chr_coverage, chr, cov_data_rev)
+  coverage_data_fwd <- lapply(1:length(bed_graphs_data_fwd), get_coverage_per_chromosome, chromosome, bed_graphs_data_fwd)        
+  coverage_data_rev <- lapply(1:length(bed_graphs_data_rev), get_coverage_per_chromosome, chromosome, bed_graphs_data_rev)
   
   # Extract genomic region of interest
-  size_of_annot_fwd <- nrow(gff_filt_fwd)
-  size_of_annot_rev <- nrow(gff_filt_rev)
+  size_of_annot_fwd <- nrow(introns_per_strand_and_chromosome_fwd)
+  size_of_annot_rev <- nrow(introns_per_strand_and_chromosome_rev)
   
-  r_fw <- lapply(1:length(cov_data_chr_fwd), function(x) {                                                       
-    mcmapply(function(s, e) { window(cov_data_chr_fwd[[x]], s, e) }, gff_filt_fwd$start, gff_filt_fwd$end, mc.cores = 12)                                      
+  intron_coverage_data_fwd <- lapply(1:length(coverage_data_fwd), function(x) {                                                       
+    mcmapply(function(start_position, end_position) {window(coverage_data_fwd[[x]], start_position, end_position)}, 
+             introns_per_strand_and_chromosome_fwd$start_position_measured, 
+             introns_per_strand_and_chromosome_fwd$end_position_measured,
+             mc.cores = 6)                                      
   })
   
-  r_rev <- lapply(1:length(cov_data_chr_rev), function(x) {                                                       
-    mcmapply(function(s, e) { rev(window(cov_data_chr_rev[[x]], s, e)) }, gff_filt_rev$start, gff_filt_rev$end, mc.cores = 12)       
+  intron_coverage_data_rev <- lapply(1:length(coverage_data_rev), function(x) {                                                       
+    mcmapply(function(start_position, end_position) {rev(window(coverage_data_rev[[x]], start_position, end_position))},
+             introns_per_strand_and_chromosome_rev$start_position_measured, 
+             introns_per_strand_and_chromosome_rev$end_position_measured,
+             mc.cores = 6)       
   })
   
-  if (length(r_fw[[1]]) == 0) r_fw <- NULL else r_fw <- lapply(1:size_of_annot_fwd, function(y) lapply(r_fw, function(x) x[[y]]))
+  if (length(intron_coverage_data_fwd[[1]]) == 0) intron_coverage_data_fwd <- NULL else intron_coverage_data_fwd <- lapply(1:size_of_annot_fwd, function(y) lapply(intron_coverage_data_fwd, function(x) x[[y]]))
   
-  if (length(r_rev[[1]]) == 0) r_rev <- NULL else r_rev <- lapply(1:size_of_annot_rev, function(y) lapply(r_rev, function(x) x[[y]]))
+  if (length(intron_coverage_data_rev[[1]]) == 0) intron_coverage_data_rev <- NULL else intron_coverage_data_rev <- lapply(1:size_of_annot_rev, function(y) lapply(intron_coverage_data_rev, function(x) x[[y]]))
   
-  gen_data <- c(r_fw, r_rev)
-  gff_filt <- rbind(gff_filt_fwd, gff_filt_rev)
-  
-  # Get slope
-  cat("Get slope \n")
-  gen_slope <- mclapply(gen_data, compute_x_intercept, mc.cores=12)
-  cat(paste(format(object.size(gen_slope), units = "MB"), "\n"))
-  
-  cat("alphab")
-  gen_slope[gen_slope == "NULL"] <- NA
-  cat(paste(chr, "\n"))
-  gen_slope <- do.call(rbind, gen_slope)
-  gen_slope <- cbind(gff_filt, gen_slope)        
-  return(gen_slope)
+  intron_coverage_data <- c(intron_coverage_data_fwd, intron_coverage_data_rev)
+  return(intron_coverage_data)
 }
 
-run_chr_slope_strand_spe <- function(chr, cov_data_fwd, cov_data_rev, gff_b, chrsize, direc, cl) { 
-    # Get annotation
-    gff_filt_fwd <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "plus")
-    gff_filt_rev <- filter_gene(gff_b, gen_elem, chr, chrsize, direc, "minus")
-    
-    # Split by chromosome
-    cov_data_chr_fwd <- lapply(1:length(cov_data_fwd), get_chr_coverage, chr, cov_data_fwd)        
-    cov_data_chr_rev <- lapply(1:length(cov_data_rev), get_chr_coverage, chr, cov_data_rev)
-    
-    # Extract genomic region of interest
-    size_of_annot_fwd <- nrow(gff_filt_fwd)
-    size_of_annot_rev <- nrow(gff_filt_rev)
-    
-    r_fw <- lapply(1:length(cov_data_chr_fwd), function(x) {                                                       
-      mcmapply(function(s, e) { window(cov_data_chr_fwd[[x]], s, e) }, gff_filt_fwd$start, gff_filt_fwd$end, mc.cores = 12)                                      
-    })
-    
-    r_rev <- lapply(1:length(cov_data_chr_rev), function(x) {                                                       
-      mcmapply(function(s, e) { rev(window(cov_data_chr_rev[[x]], s, e)) }, gff_filt_rev$start, gff_filt_rev$end, mc.cores = 12)       
-    })
-    
-    if (length(r_fw[[1]]) == 0) r_fw <- NULL else r_fw <- lapply(1:size_of_annot_fwd, function(y) lapply(r_fw, function(x) x[[y]]))
-    if (length(r_rev[[1]]) == 0) r_rev <- NULL else r_rev <- lapply(1:size_of_annot_rev, function(y) lapply(r_rev, function(x) x[[y]]))
-    
-    gen_data <- c(r_fw, r_rev)
-    gff_filt <- rbind(gff_filt_fwd, gff_filt_rev)
-    
-    # Get slope
-    cat("Get slope \n")
-    gen_slope <- mclapply(gen_data, compute_slope, mc.cores = 12)
-    cat(paste(format(object.size(gen_slope), units = "MB"), "\n"))
-    
-    cat("alphab")
-    gen_slope[gen_slope == "NULL"] <- NA
-    cat(paste(chr, "\n"))
-    gen_slope <- do.call(rbind, gen_slope)
-    gen_slope <- cbind(gff_filt, gen_slope)        
-    return(gen_slope)
-  }
+# Calculate the specified component of intronic regions
+lm_fit_intron_coverage_per_chromosome <- function(chromosome, intron_coverage_data,intron_info, nr_of_cores = 6, cl = cl, component_from_lm = "all") {
+  # Sub select introns for chromosome and strand
+  introns_per_strand_and_chromosome_fwd <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "plus")
+  introns_per_strand_and_chromosome_rev <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "minus")
+  intron_coverage_lm_data <- mclapply(intron_coverage_data, compute_lm_component, component = component_from_lm, mc.cores = nr_of_cores)
   
+  cat(paste(format(object.size(intron_coverage_lm_data), units = "MB"), "\n"))
+  
+  intron_coverage_lm_data[intron_coverage_lm_data == "NULL"] <- NA
+  
+  intron_coverage_lm_data <- do.call(rbind, intron_coverage_lm_data)
+  
+  introns_per_strand_and_chromosome <- rbind(introns_per_strand_and_chromosome_fwd, introns_per_strand_and_chromosome_rev)
+  introns_per_strand_and_chromosome_test <<- introns_per_strand_and_chromosome
+  intron_coverage_lm_data_test <<- intron_coverage_lm_data
+  intron_coverage_lm_data <- cbind(introns_per_strand_and_chromosome, intron_coverage_lm_data)
+  
+  return(intron_coverage_lm_data)
+}
