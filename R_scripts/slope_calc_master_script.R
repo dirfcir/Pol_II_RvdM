@@ -1,68 +1,102 @@
-select_introns_for_slopecalc <- function(intron_info_file){
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# Function to select introns for slope calculation based on various criteria          #
+# Args:                                                                               #
+#   intron_info_file: Data frame containing information on introns                    #
+# Returns:                                                                            #
+#   Data frame filtered based on specific criteria, for downstream slope calculation. #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+select_introns_for_slopecalc <- function(intron_info_file) 
+  {
   intron_info_file <- intron_info_file %>%
-    filter(overlap_outside_reference != TRUE) %>%
-    filter(supported_by_samples == 1)         %>%
-    filter(strand_measured != 0)              %>%
-    filter((start_match_reference == TRUE & end_match_reference == TRUE) 
-           | 
-             (start_match_reference == TRUE & end_match_reference == FALSE) 
-           | 
-             (start_match_reference == FALSE & end_match_reference == TRUE)
-    )
-  return(intron_info_file)
+    filter(overlap_outside_reference != TRUE) %>%      # Exclude introns overlapping outside reference
+    filter(supported_by_samples == 1) %>%              # Include only introns supported by 100% of samples
+    filter(strand_measured != 0) %>%                   # Include only introns where the strand annotation is conclusive +/-
+    filter((start_match_reference == TRUE & end_match_reference == TRUE) |  # Fully match reference intro
+             (start_match_reference == TRUE & end_match_reference == FALSE) | # Match start OR end position of reference intro
+             (start_match_reference == FALSE & end_match_reference == TRUE))
+  return(intron_info_file)  # Return the filtered intron info file
 }
 
-#########################################################
-### FOR KEEPS FOR KEEPS FOR KEEPS KOR KEEPS FOR KEEPS ###
-#########################################################
-# Consolidated function to compute intercepts, slopes, and their p-values
-compute_lm <- function(x1, component = "slope") {
-  if (is.null(x1)) { return(NULL) }
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Function to fit a linear model to the coverage data of the RNAseq to an intron.                                              #
+# Args:                                                                                                        #
+#   chromosome_intron_coverage: List of coverage data for introns.                                                        #
+#   component: Component of the linear model to return (default is "all").                                     #
+# Returns:                                                                                                     #
+#   Data frame with lm info on y-intercept, x-intercept, slope, p-value, and sample filename for each intron.  #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+compute_lm <- function(coverage_per_intron, 
+                       component = "all") 
+  {
+  if (is.null(coverage_per_intron)) { return(NULL) }  # Return NULL if the input is NULL
   
-  result <- t(sapply(1:length(x1), function(z) {
-    fit <- lm(as.numeric(x1[[z]]) ~ seq(1:length(x1[[z]])))
-    summary_fit <- summary(fit)
-    y_intercept <- fit$coefficients[1]
-    x_intercept <- fit$fitted.values[[length(x1[[z]])]]
-    slope <- summary_fit$coefficients[2, 1]
-    p_value <- summary_fit$coefficients[2, 4]  # p-value for the slope (same for the model)
+  result <- t(sapply(1:length(coverage_per_intron), function(sample_index) 
+    {
+    fit <- lm(as.numeric(coverage_per_intron[[sample_index]]) ~ seq(1:length(coverage_per_intron[[sample_index]])))  # Fit linear model seq() to give positions to coverage values
+    summary_fit <- summary(fit)  # Get summary of the fit
+    y_intercept <- fit$coefficients[1]  # Extract y-intercept
+    x_intercept <- fit$fitted.values[[length(coverage_per_intron[[sample_index]])]]  # Extract x-intercept
+    slope <- summary_fit$coefficients[2, 1]  # Extract slope
+    p_value <- summary_fit$coefficients[2, 4]  # Extract p-value for the slope
+    sample_filename <- as.character(metadata(coverage_per_intron[[sample_index]])$sample_filename)  # Extract sample filename
     
     if (component == "y_intercept") {
-      return(c(y_intercept, p_value))
+      return(c(y_intercept, p_value, sample_filename))
     } else if (component == "x_intercept") {
-      return(c(x_intercept, p_value))
+      return(c(x_intercept, p_value, sample_filename))
     } else if (component == "slope") {
-      return(c(slope, p_value))
+      return(c(slope, p_value, sample_filename))
     } else if (component == "all") {
-      return(c(y_intercept, x_intercept, slope, p_value))
+      return(c(y_intercept, x_intercept, slope, p_value, sample_filename))
     }
   }))
   
   if (component == "all") {
-    colnames(result) <- c("y_intercept", "x_intercept", "slope", "p_value")
+    colnames(result) <- c("y_intercept", "x_intercept", "slope", "p_value", "sample_filename")
   } else {
-    colnames(result) <- c("value", "p_value")
+    colnames(result) <- c("value", "p_value", "sample_filename")
   }
   
-  return(as.data.frame(result))
+  return(as.data.frame(result))  # Return the result as a dataframe
 }
 
-get_coverage_per_chromosome <- function(x, chromosome, cov_data) {
-  chromosome_for_calc_coverage <- cov_data[[x]][seqnames(cov_data[[x]]) == chromosome]
-  chromosome_coverage_data <- coverage(chromosome_for_calc_coverage, weight = chromosome_for_calc_coverage$score)[[chromosome]]
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #                  
+# Function to get coverage data for a specific chromosome                               #
+# Args:                                                                                 #
+#   sample_index: Index of the coverage data list.                                      #
+#   chromosome: Chromosome name to filter coverage data.                                #
+#   bed_graph: List of coverage data.                                                   #
+# Returns:                                                                              #
+#   Coverage data for the specified chromosome with metadata (filename and chromosome). #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #                  
+get_coverage_per_chromosome <- function(sample_index, 
+                                        chromosome, 
+                                        bed_graph) 
+  {
+  chromosome_data_for_coverage_calc <- bed_graph[[sample_index]][seqnames(bed_graph[[sample_index]]) == chromosome]  # Subset data for the chromosome
+  chromosome_coverage_data <- coverage(chromosome_data_for_coverage_calc, weight = chromosome_data_for_coverage_calc$score)[[chromosome]]  # Compute coverage
+  
+  # Extract the sample_filename from the metadata
+  sample_filename <- unique(mcols(chromosome_data_for_coverage_calc)$sample_filename)
+  metadata(chromosome_coverage_data)$sample_filename <- sample_filename
+  metadata(chromosome_coverage_data)$chromosome <- chromosome
+  
   return(chromosome_coverage_data)
 }
 
-compute_slope <- function(x1, filt = TRUE) {            
-  if (is.null(x1)) { return(NULL) }
-  slope <- sapply(1:length(x1), function(z) { sum <- summary(lm(as.numeric(x1[[z]]) ~ seq(1:length(x1[[z]])))); return(sum[4][[1]][[2]]) })
-  return(slope)                  
-}
-
-filter_introns_by_chromosome_and_strand <- function(intron_info_file, chromosome, strand_sense = '') {
-  
-  if (strand_sense == 'all'){
-    introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome==chromosome),]                
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Function to filter introns by chromosome and strand                       #
+# Args:                                                                     #
+#   intron_info_file: Data frame containing intron information.             #
+#   chromosome: Chromosome name to filter introns.                          #
+#   strand_sense: Strand sense to filter introns ("all", "plus", "minus").  #
+# Returns:                                                                  #
+#   Data frame filtered by chromosome and strand.                           #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+filter_introns_by_chromosome_and_strand <- function(intron_info_file, chromosome, strand_sense = '') 
+  {
+  if (strand_sense == 'all') {
+    introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome == chromosome),]
   }
   
   if (strand_sense == 'minus') {
@@ -71,131 +105,166 @@ filter_introns_by_chromosome_and_strand <- function(intron_info_file, chromosome
   if (strand_sense == 'plus') {
     introns_per_strand_and_chromosome <- intron_info_file[(intron_info_file$chromosome_measured == chromosome) & (intron_info_file$strand_measured == "+"),]
   }
-  return(introns_per_strand_and_chromosome)
+  return(introns_per_strand_and_chromosome)  # Return filtered introns
 }
 
-paralel_import_bed_graphs <- function(bedgraph_filepaths, cluster) {
-  imported_bed_graphs <- parLapply(cluster, bedgraph_filepaths, function(d) {
-    imported_bed_graph <- import.bedGraph(d)
-    #seqlengths(imported_bed_graph) <- chr_size[levels(seqnames(imported_bed_graph))]                       
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Function to import bedGraph files in parallel                   #
+# Args:                                                           #
+#   bedgraph_filepaths: Vector of file paths to bedGraph files.   #
+#   nr_of_cores: Number of cores to use for parallel processing.  #
+# Returns:                                                        #
+#   List of imported bedGraph files with filenames in metadata.   #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+paralel_import_bed_graphs <- function(bedgraph_filepaths, 
+                                      nr_of_cores) 
+  {
+  imported_bed_graphs <- mclapply(bedgraph_filepaths, function(bedgraph_filepath) 
+    {
+    imported_bed_graph <- import.bedGraph(bedgraph_filepath)  # Import bedGraph file
+    mcols(imported_bed_graph)$sample_filename <- basename(bedgraph_filepath)  # Add sample filename to metadata
     return(imported_bed_graph)
-    
-  }) 
+  }, mc.cores = nr_of_cores)  # Use multiple cores for parallel processing
   return(imported_bed_graphs)
 }
 
-get_intron_coverage_per_chromosome <- function(chromosome, bed_graphs_data_fwd, bed_graphs_data_rev, intron_info, nr_of_cores = 6) { 
-  
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Function to get intron coverage data for a specific chromosome  #
+# Args:                                                           #
+#   chromosome: Chromosome name to filter coverage data.          #
+#   bed_graphs_data_fwd: List of forward strand bedGraph data.    #
+#   bed_graphs_data_rev: List of reverse strand bedGraph data.    #
+#   intron_info: Data frame containing information on introns     #
+#   nr_of_cores: Number of cores to use for parallel processing.  #
+# Returns:                                                        #
+#   List of intron coverage data for the specified chromosome     #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #  
+get_intron_coverage_per_chromosome <- function(chromosome,
+                                               bed_graphs_data_fwd,
+                                               bed_graphs_data_rev, 
+                                               intron_info, nr_of_cores = 6) 
+  { 
   # Subselect introns for chromosome and strand
-  introns_per_strand_and_chromosome_fwd <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "plus")
-  introns_per_strand_and_chromosome_rev <- filter_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "minus")
-  
-  # Split by chromosome
-  coverage_data_fwd <- lapply(1:length(bed_graphs_data_fwd), get_coverage_per_chromosome, chromosome, bed_graphs_data_fwd)        
-  coverage_data_rev <- lapply(1:length(bed_graphs_data_rev), get_coverage_per_chromosome, chromosome, bed_graphs_data_rev)
-  
-  # Extract genomic region of interest
-  size_of_annot_fwd <- nrow(introns_per_strand_and_chromosome_fwd)
-  size_of_annot_rev <- nrow(introns_per_strand_and_chromosome_rev)
-  
-  intron_coverage_data_fwd <- lapply(1:length(coverage_data_fwd), function(x) {                                                       
-    mcmapply(function(start_position, end_position) {window(coverage_data_fwd[[x]], start_position, end_position)}, 
-             introns_per_strand_and_chromosome_fwd$start_position_measured, 
-             introns_per_strand_and_chromosome_fwd$end_position_measured,
-             mc.cores = nr_of_cores)                                      
-  })
-  
-  intron_coverage_data_rev <- lapply(1:length(coverage_data_rev), function(x) {                                                       
-    mcmapply(function(start_position, end_position) {rev(window(coverage_data_rev[[x]], start_position, end_position))},
-             introns_per_strand_and_chromosome_rev$start_position_measured, 
-             introns_per_strand_and_chromosome_rev$end_position_measured,
-             mc.cores = nr_of_cores)       
-  })
-  
-  if (length(intron_coverage_data_fwd[[1]]) == 0) intron_coverage_data_fwd <- NULL else intron_coverage_data_fwd <- lapply(1:size_of_annot_fwd, function(y) lapply(intron_coverage_data_fwd, function(x) x[[y]]))
-  
-  if (length(intron_coverage_data_rev[[1]]) == 0) intron_coverage_data_rev <- NULL else intron_coverage_data_rev <- lapply(1:size_of_annot_rev, function(y) lapply(intron_coverage_data_rev, function(x) x[[y]]))
-  
-  chromosome_intron_coverage_data <- c(intron_coverage_data_fwd, intron_coverage_data_rev)
-  return(chromosome_intron_coverage_data)
-}
-
-# Calculate the specified component of intronic regions
-lm_fit_intron_coverage_per_chromosome <- function(chromosome, intron_coverage_data,intron_info, nr_of_cores = 6, component_from_lm = "all") {
-  # Sub select introns for chromosome and strand
   introns_per_strand_and_chromosome_fwd <- filter_introns_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "plus")
   introns_per_strand_and_chromosome_rev <- filter_introns_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "minus")
   
-  chromosome_intron_coverage_lm_info <- mclapply(intron_coverage_data, compute_lm, component = component_from_lm, mc.cores = nr_of_cores)
+  # Get coverage data for forward and reverse strands
+  coverage_data_fwd <- lapply(1:length(bed_graphs_data_fwd), get_coverage_per_chromosome, chromosome, bed_graphs_data_fwd)        
+  coverage_data_rev <- lapply(1:length(bed_graphs_data_rev), get_coverage_per_chromosome, chromosome, bed_graphs_data_rev)
   
-  cat(paste(format(object.size(chromosome_intron_coverage_lm_info), units = "MB"), "\n"))
+  size_of_annot_fwd <- nrow(introns_per_strand_and_chromosome_fwd)
+  size_of_annot_rev <- nrow(introns_per_strand_and_chromosome_rev)
   
-  chromosome_intron_coverage_lm_info[chromosome_intron_coverage_lm_info == "NULL"] <- NA
+  # Forward strand coverage data with metadata assignment
+  intron_coverage_data_fwd <- lapply(1:length(coverage_data_fwd), function(sample_index) 
+    {
+    mcmapply(function(start_position, end_position) 
+      {
+      cov_window <- window(coverage_data_fwd[[sample_index]], start_position, end_position)
+      metadata(cov_window)$sample_filename <- metadata(coverage_data_fwd[[sample_index]])$sample_filename
+      metadata(cov_window)$chromosome <- metadata(coverage_data_fwd[[sample_index]])$chromosome
+      return(cov_window)
+    }, introns_per_strand_and_chromosome_fwd$start_position_measured,
+      introns_per_strand_and_chromosome_fwd$end_position_measured,
+      mc.cores = nr_of_cores)
+  })
   
-  chromosome_intron_coverage_lm_info <- do.call(rbind, chromosome_intron_coverage_lm_info)
+  # Reverse strand coverage data with metadata assignment
+  intron_coverage_data_rev <- lapply(1:length(coverage_data_rev), function(sample_index) 
+    {
+    mcmapply(function(start_position, end_position) 
+      {
+      cov_window <- rev(window(coverage_data_rev[[sample_index]], start_position, end_position))
+      metadata(cov_window)$sample_filename <- metadata(coverage_data_rev[[sample_index]])$sample_filename
+      metadata(cov_window)$chromosome <- metadata(coverage_data_fwd[[sample_index]])$chromosome
+      return(cov_window)
+    }, introns_per_strand_and_chromosome_rev$start_position_measured,
+      introns_per_strand_and_chromosome_rev$end_position_measured,
+      mc.cores = nr_of_cores)
+  })
   
-  introns_per_chromosome <- rbind(introns_per_strand_and_chromosome_fwd, introns_per_strand_and_chromosome_rev)
+  # Combine forward and reverse strand data
+  if (length(intron_coverage_data_fwd[[1]]) == 0) intron_coverage_data_fwd <- NULL else intron_coverage_data_fwd <- lapply(1:size_of_annot_fwd, function(y) lapply(intron_coverage_data_fwd, function(x) x[[y]]))
+  if (length(intron_coverage_data_rev[[1]]) == 0) intron_coverage_data_rev <- NULL else intron_coverage_data_rev <- lapply(1:size_of_annot_rev, function(y) lapply(intron_coverage_data_rev, function(x) x[[y]]))
   
-  chromosome_intron_coverage_lm_info <- cbind(introns_per_chromosome, chromosome_intron_coverage_lm_info)
-  
-  return(chromosome_intron_coverage_lm_info)
+  chromosome_intron_coverage_data <- c(intron_coverage_data_fwd, intron_coverage_data_rev)  # Combine forward and reverse strand data
+  return(chromosome_intron_coverage_data)  # Return combined data
 }
 
-
-get_coverage_per_chromosome_and_strand <- function(out_bg_folder       = "", 
-                                                   defined_introns_file = "",
-                                                   sj_annot_folder      = "",
-                                                   outfolder_slope_calc = "",
-                                                   chromosome_names     = ""){}
-out_bg_folder <- "/cellfile/datapublic/cdebes/cdebes/workspace/scripts/dmelanogaster_mut/"
-sj_annot_folder      <- "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/sj_annot_out_folder/"
-outfolder_slope_calc <- "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/outfolder_slope_calc"
-source("/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/misc/chromosome_lengths_d_melanogaster")
-chrsize <- chrsize_drosophila
-nr_of_cluster_for_paralel_computing <- 6
-cl <- makeCluster(6, outfile=str_glue("{outfolder_slope_calc}/cluster.log"))
-clusterExport(cl, ls())
-clusterEvalQ(cl, install_and_load(all_packages))
-
-bedgraph_fwd_file_pattern <- str_glue("{out_bg_folder}*Unique.str2.out.bg")
-bedgraph_fwd_filepaths <- Sys.glob(bedgraph_fwd_file_pattern)
-bedgraph_rev_file_pattern <- str_glue("{out_bg_folder}*Unique.str1.out.bg")
-bedgraph_rev_filepaths <- Sys.glob(bedgraph_rev_file_pattern)
-
-intron_info_df <- read_tsv(str_glue("{sj_annot_folder}intron_sj_annotated.tsv"))
-selected_intron_info_df <- select_introns_for_slopecalc(intron_info_df)
-
-#extracted_sj_annotation_bed_files  <- extracted_sj_annotation_bed_files[,c(1:4,6)]
-#colnames(extracted_sj_annotation_bed_files) <- c('chr','start','end','strand', 'id')
-
-bed_graphs_data_fwd <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_fwd_filepaths, cluster = cl)
-bed_graphs_data_rev <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_rev_filepaths, cluster = cl)
-
-intron_coverage_data <- lapply(chromosome_names, get_intron_coverage_per_chromosome, bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df, chrsize = chrsize, cl = cl)
-intron_coverage_data_all <-do.call(rbind,intron_coverage_data)
-save(gen_data,file=str_glue("/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/intron_coverage_data_all.RData"))
-return(intron_coverage_data)
-# Load the saved data
-selected_intron_info_df <- select_introns_for_slopecalc(intron_info_df)
-
-check_intron_coverage_2L <- get_intron_coverage_per_chromosome(chromosome = "2L", bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df)
-
-lm_fit <- lm_fit_intron_coverage_per_chromosome(chromosome = "2L", intron_coverage_data = check_intron_coverage_2L, intron_info = selected_intron_info_df, nr_of_cores = 6, component_from_lm = "all")
-
-
-
-slope_lms <- lapply(names(chrsize), lm_fit_intron_coverage, intron_coverage_data = gen_data, intron_info = selected_intron_info_df, nr_of_cores = 6, component_from_lm = "all")
-intercept_start<-do.call(rbind,gen_auc)
-save(intercept_start,file=paste0(path,"intercept_start.RData"))
-
-gen_auc <- lapply(names(chrsize),run.chr.x.intercept.strand.spe, cov_data_fwd, cov_data_rev, gff_b, chrsize, "all", cl)
-intercept_end<-do.call(rbind,gen_auc)
-save(intercept_end,file=paste0(path,"intercept_end.RData"))
-
-gen_auc <- lapply(names(chrsize_drosophila),run_chr_slope_strand_spe, cov_data_fwd[1:2], cov_data_rev[1:2], gff_b, chrsize_drosophila, "all", cl)
-slope<-do.call(rbind,gen_auc)
-save(slope,file=paste0(path,"slope.RData"))
-
-stopCluster(cl)
-
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #  # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# Function to fit linear models to intron coverage data for a specific chromosome                                      #
+# Args:                                                                                                                #
+#   chromosome: Chromosome name to filter coverage data.                                                               #
+#   intron_coverage_data: List of intron coverage data for different chromosomes.                                      #
+#   intron_info: Data frame containing intron information.                                                             #
+#   nr_of_cores: Number of cores to use for parallel processing (default is 6).                                        #
+#   component_from_lm: Component of the linear model to return (default is "all").                                     #
+# Returns:                                                                                                             #
+#   Data frame with intron information combined with linear model results (y-intercept, x-intercept, slope, p-value).  #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #  # # # # # # # # # # # # # # # # # # # # # # # # # #
+lm_fit_intron_coverage_per_chromosome <- function(chromosome, 
+                                                  intron_coverage_data, 
+                                                  intron_info,
+                                                  nr_of_cores = 6, 
+                                                  component_from_lm = "all") 
+  {
+  # Subselect introns for chromosome and strand
+  introns_per_strand_and_chromosome_fwd <- filter_introns_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "plus")
+  introns_per_strand_and_chromosome_rev <- filter_introns_by_chromosome_and_strand(intron_info_file = intron_info, chromosome = chromosome, strand_sense = "minus")
+  
+  chromosome_intron_coverage_data <- intron_coverage_data[[chromosome]]
+  chromosome_intron_coverage_lm_info <- mclapply(chromosome_intron_coverage_data, compute_lm, component = component_from_lm, mc.cores = nr_of_cores)  # Fit linear models in parallel
+  
+  cat(paste(format(object.size(chromosome_intron_coverage_lm_info), units = "MB"), "\n"))  # Print the size of the object
+  
+  chromosome_intron_coverage_lm_info[chromosome_intron_coverage_lm_info == "NULL"] <- NA  # Replace NULLs with NA
+  
+  chromosome_intron_coverage_lm_info <- do.call(rbind, chromosome_intron_coverage_lm_info)  # Combine results into a dataframe
+  
+  introns_per_chromosome <- rbind(introns_per_strand_and_chromosome_fwd, introns_per_strand_and_chromosome_rev)  # Combine forward and reverse strand introns
+  
+  chromosome_intron_coverage_lm_info <- cbind(introns_per_chromosome, chromosome_intron_coverage_lm_info)  # Combine intron info with linear model results
+  
+  return(chromosome_intron_coverage_lm_info)  # Return the combined data
 }
+
+# Function to excecute all other functions and calculate the slope of the 
+calculate_slopes <- function(bedgraph_folder, 
+                             annoted_intron_sj_folder, 
+                             outfolder_slope_calcuclations, 
+                             chromosome_names, 
+                             nr_of_cores_for_paralel_computing) 
+  {
+  bedgraph_fwd_file_pattern <- str_glue("{bedgraph_folder}*Unique.str2.out.bg")
+  bedgraph_fwd_filepaths <- Sys.glob(bedgraph_fwd_file_pattern)
+  
+  bedgraph_rev_file_pattern <- str_glue("{bedgraph_folder}*Unique.str1.out.bg")
+  bedgraph_rev_filepaths <- Sys.glob(bedgraph_rev_file_pattern)
+  
+  intron_info_df <- read_tsv(str_glue("{annoted_intron_sj_folder}intron_sj_annotated.tsv"))
+  selected_intron_info_df <- select_introns_for_slopecalc(intron_info_df)
+  
+  bed_graphs_data_fwd <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_fwd_filepaths, nr_of_cores = nr_of_cores_for_paralel_computing)
+  bed_graphs_data_rev <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_rev_filepaths, nr_of_cores = nr_of_cores_for_paralel_computing)
+
+  intron_coverage_data <- lapply(chromosome_names, get_intron_coverage_per_chromosome, bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_paralel_computing)
+  names(intron_coverage_data) <- chromosome_names
+  
+  intron_coverage_data_all <- do.call(rbind, intron_coverage_data)
+  save(intron_coverage_data_all, file = str_glue("{outfolder_slope_calcuclations}intron_coverage_data_all.RData"))
+  
+  intron_coverage_slope_lms <- lapply(chromosome_names, lm_fit_intron_coverage_per_chromosome, intron_coverage_data = intron_coverage_data, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_paralel_computing, component_from_lm = "all")
+  names(intron_coverage_slope_lms) <- chromosome_names
+  intron_coverage_slope_lms_row_bound <- do.call(rbind, intron_coverage_slope_lms)
+  
+  write.table(intron_coverage_slope_lms_row_bound, file = str_glue("{outfolder_slope_calcuclations}intron_coverage_slope_lms.tsv"), row.names = FALSE, sep = "\t", quote = FALSE)
+}
+
+######## HOW I RAN IT I ALSO HAVE THE EXECUTE SCRIPT BUT THIS IS EASIER FOR NOW I THNINK
+source("/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Scripts/my_Scripts/Pol_II_RvdM/R_scripts/required/load_packages.R")
+install_and_load(all_packages)
+calculate_slopes(bedgraph_folder                    = "/cellfile/datapublic/cdebes/cdebes/workspace/scripts/dmelanogaster_mut/", 
+                 annoted_intron_sj_folder           = "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/sj_annot_out_folder/",
+                 outfolder_slope_calcuclations      = "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/outfolder_slope_calc/",
+                 chromosome_names                   = c("2L", "2R", "3L", "3R", "4",  "X",  "Y"),
+                 nr_of_cores_for_paralel_computing  = 6)

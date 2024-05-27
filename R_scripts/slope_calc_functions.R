@@ -61,8 +61,10 @@ filter_by_chromosome_and_strand <- function(intron_info_file, chromosome, strand
 }
 
 paralel_import_bed_graphs <- function(bedgraph_filepaths, cluster) {
-  imported_bed_graphs <- parLapply(cluster, bedgraph_filepaths, function(d) {
-    imported_bed_graph <- import.bedGraph(d)
+  imported_bed_graphs <- parLapply(cluster, bedgraph_filepaths, function(bedgraph_filepath) {
+    imported_bed_graph <- import.bedGraph(bedgraph_filepath)
+    mcols(imported_bed_graph)$filename <- basename(bedgraph_filepath)
+
     #seqlengths(imported_bed_graph) <- chr_size[levels(seqnames(imported_bed_graph))]                       
     return(imported_bed_graph)
     

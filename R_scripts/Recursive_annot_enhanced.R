@@ -132,7 +132,7 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
     str_glue("{sj_annot_out_folder}/intron_sj_annotated_with_reference.tsv"), col_names = TRUE
   )
   write_tsv(
-    junction_data[,c("chromosome_measured",	"start_position_measured",	"end_position_measured",	"strand_measured",	"intron_motif",	"supported_by_samples",	"max_unique_mapping_count",	"min_multi_mapping_count",	"max_overhang", "inside_reference_intron",	"start_match_reference",	"end_match_reference",	"overlap_outside_reference", "measured_intron_within_this_intron")], 
+    junction_data[,c("chromosome_measured",	"start_position_measured",	"end_position_measured",	"strand_measured",	"intron_motif",	"supported_by_samples",	"max_unique_mapping_count",	"min_multi_mapping_count",	"max_overhang", "gene_id", "inside_reference_intron",	"start_match_reference",	"end_match_reference",	"overlap_outside_reference", "measured_intron_within_this_intron")], 
     str_glue("{sj_annot_out_folder}/intron_sj_annotated.tsv"), col_names = TRUE
   )
 
