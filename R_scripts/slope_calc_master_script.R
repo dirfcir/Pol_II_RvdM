@@ -228,43 +228,61 @@ lm_fit_intron_coverage_per_chromosome <- function(chromosome,
   return(chromosome_intron_coverage_lm_info)  # Return the combined data
 }
 
-# Function to excecute all other functions and calculate the slope of the 
+# Function to execute all other functions and calculate the slope of the intron coverage data
 calculate_slopes <- function(bedgraph_folder, 
                              annoted_intron_sj_folder, 
-                             outfolder_slope_calcuclations, 
+                             outfolder_slope_calculations, 
                              chromosome_names, 
-                             nr_of_cores_for_paralel_computing) 
-  {
+                             nr_of_cores_for_parallel_computing) 
+{
+  cat("Starting slope calculation process...\n")
+  
+  # Check if the output_directory exists, and create it if it doesn't
+  if (!dir.exists(outfolder_slope_calculations)) {
+    dir.create(outfolder_slope_calculations, recursive = TRUE)
+    cat("Created output directory.\n")
+  } else {
+    cat("Output directory already exists.\n")
+  }
+  
+  cat("Reading bedGraph file paths...\n")
   bedgraph_fwd_file_pattern <- str_glue("{bedgraph_folder}*Unique.str2.out.bg")
   bedgraph_fwd_filepaths <- Sys.glob(bedgraph_fwd_file_pattern)
   
   bedgraph_rev_file_pattern <- str_glue("{bedgraph_folder}*Unique.str1.out.bg")
   bedgraph_rev_filepaths <- Sys.glob(bedgraph_rev_file_pattern)
+  cat("BedGraph file paths read.\n")
   
-  intron_info_df <- read_tsv(str_glue("{annoted_intron_sj_folder}intron_sj_annotated.tsv"))
+  cat("Reading intron information...\n")
+  intron_info_df <- read_tsv(str_glue("{annoted_intron_sj_folder}intron_sj_annotated_with_reference.tsv"))
   selected_intron_info_df <- select_introns_for_slopecalc(intron_info_df)
+  cat("Intron information read and filtered.\n")
   
-  bed_graphs_data_fwd <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_fwd_filepaths, nr_of_cores = nr_of_cores_for_paralel_computing)
-  bed_graphs_data_rev <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_rev_filepaths, nr_of_cores = nr_of_cores_for_paralel_computing)
-
-  intron_coverage_data <- lapply(chromosome_names, get_intron_coverage_per_chromosome, bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_paralel_computing)
+  cat("Importing bedGraph data in parallel...\n")
+  bed_graphs_data_fwd <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_fwd_filepaths, nr_of_cores = nr_of_cores_for_parallel_computing)
+  bed_graphs_data_rev <- paralel_import_bed_graphs(bedgraph_filepaths = bedgraph_rev_filepaths, nr_of_cores = nr_of_cores_for_parallel_computing)
+  cat("BedGraph data imported.\n")
+  
+  cat("Getting intron coverage data for each chromosome...\n")
+  intron_coverage_data <- lapply(chromosome_names, get_intron_coverage_per_chromosome, bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_parallel_computing)
   names(intron_coverage_data) <- chromosome_names
-  
+  cat("Intron coverage data collected.\n")
   intron_coverage_data_all <- do.call(rbind, intron_coverage_data)
-  save(intron_coverage_data_all, file = str_glue("{outfolder_slope_calcuclations}intron_coverage_data_all.RData"))
+  save(intron_coverage_data_all, file = str_glue("{outfolder_slope_calculations}intron_coverage_data_all.RData"))
+  cat("Intron coverage data saved.\n")
   
-  intron_coverage_slope_lms <- lapply(chromosome_names, lm_fit_intron_coverage_per_chromosome, intron_coverage_data = intron_coverage_data, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_paralel_computing, component_from_lm = "all")
+  cat("Fitting linear models to intron coverage data...\n")
+  intron_coverage_slope_lms <- lapply(chromosome_names, lm_fit_intron_coverage_per_chromosome, intron_coverage_data = intron_coverage_data, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_parallel_computing, component_from_lm = "all")
   names(intron_coverage_slope_lms) <- chromosome_names
   intron_coverage_slope_lms_row_bound <- do.call(rbind, intron_coverage_slope_lms)
+  cat("Linear models fitted.\n")
   
-  write.table(intron_coverage_slope_lms_row_bound, file = str_glue("{outfolder_slope_calcuclations}intron_coverage_slope_lms.tsv"), row.names = FALSE, sep = "\t", quote = FALSE)
+  intron_coverage_slope_lms_row_bound <- intron_coverage_slope_lms_row_bound %>%
+    mutate(adjusted_p_value = p.adjust(p_value, method = "BH")) %>%
+    relocate(adjusted_p_value, .after = p_value)  
+  cat("Adjusted p_values BH method.\n")
+  
+  
+  write.table(intron_coverage_slope_lms_row_bound, file = str_glue("{outfolder_slope_calculations}intron_coverage_slope_lms.tsv"), row.names = FALSE, sep = "\t", quote = FALSE)
+  cat("Slope calculation process completed and results saved in",outfolder_slope_calculations,".\n")
 }
-
-######## HOW I RAN IT I ALSO HAVE THE EXECUTE SCRIPT BUT THIS IS EASIER FOR NOW I THNINK
-source("/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Scripts/my_Scripts/Pol_II_RvdM/R_scripts/required/load_packages.R")
-install_and_load(all_packages)
-calculate_slopes(bedgraph_folder                    = "/cellfile/datapublic/cdebes/cdebes/workspace/scripts/dmelanogaster_mut/", 
-                 annoted_intron_sj_folder           = "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/sj_annot_out_folder/",
-                 outfolder_slope_calcuclations      = "/cellfile/datapublic/rmarel_1/Internship/Poll_II_spd/Data/outfolder_slope_calc/",
-                 chromosome_names                   = c("2L", "2R", "3L", "3R", "4",  "X",  "Y"),
-                 nr_of_cores_for_paralel_computing  = 6)

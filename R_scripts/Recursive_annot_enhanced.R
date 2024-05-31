@@ -5,10 +5,19 @@ filter_splicejunct_QC <- function(sj_df, mx_sj_overhang = 20, nr_of_uniqreads = 
 }
 
 annotate_splice_junctions <- function(sj_tab_folder        = cwd,
-                                      defined_introns_file = str_glue("{cwd}/defined_introns.bed"),
+                                      defined_introns_folder = str_glue("{cwd}/defined_introns.bed"),
                                       sj_annot_out_folder  = str_glue("{cwd}/sj_annot_out_folder")) {
    
-  dir.create(sj_annot_out_folder, recursive = TRUE, showWarnings = TRUE)
+
+    # Check if the output_directory exists, and create it if it doesn't
+  if (!dir.exists(sj_annot_out_folder)) {
+    dir.create(sj_annot_out_folder, recursive = TRUE)
+    cat("Created output directory.\n")
+  } else {
+    cat("Output directory already exists.\n")
+  }
+  
+  defined_introns_file <- str_glue("{defined_introns_folder}/*intron.bed")
   
   message("Extracting splice junction files...")
   # Extract all splice junction files
@@ -18,7 +27,7 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
     recursive = TRUE,
     full.names = TRUE
   )
-  print(splice_files)
+  
   message("Processing splice junction files...")
   # Process all splice junction files
   splice_data <- lapply(splice_files, function(file) {
