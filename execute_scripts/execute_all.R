@@ -88,7 +88,7 @@ annotate_splice_junctions(sj_tab_folder          = args[1],
 
 calculate_slopes(bedgraph_folder                    = args[3], 
                  annoted_intron_sj_folder           = args[5],
-                 outfolder_slope_calculations       = args[3],
+                 outfolder_slope_calculations       = args[8],
                  chromosome_names                   = chromosome_names,
                  nr_of_cores_for_parallel_computin  = as.numeric(args[7]))
 
