@@ -26,7 +26,7 @@ if (length(args) == 1 && args[1] %in% c("help", "--help", "-h")) {
 }
 
 # Checking number of arguments
-if (length(args) != 8) {
+if (length(args) != 9) {
   cat("Usage: Rscript execute_all.R [options]\n",
       "Options:\n",
       "  sj_tab_folder                      Path to folder containing SJ tab files (default: ",cwd,"/data/sj_tab_files/Drosophila)\n", 

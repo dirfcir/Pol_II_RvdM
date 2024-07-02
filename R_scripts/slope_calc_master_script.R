@@ -256,6 +256,7 @@ calculate_slopes <- function(bedgraph_folder,
   cat("Reading intron information...\n")
   intron_info_df <- read_tsv(str_glue("{annoted_intron_sj_folder}intron_sj_annotated_with_reference.tsv"))
   selected_intron_info_df <- select_introns_for_slopecalc(intron_info_df)
+  write.tsv(str_glue("{annoted_intron_sj_folder}intron_sj_annotated_with_reference_for_slopcalc.tsv"))
   cat("Intron information read and filtered.\n")
   
   cat("Importing bedGraph data in parallel...\n")
@@ -266,6 +267,7 @@ calculate_slopes <- function(bedgraph_folder,
   cat("Getting intron coverage data for each chromosome...\n")
   intron_coverage_data <- lapply(chromosome_names, get_intron_coverage_per_chromosome, bed_graphs_data_fwd = bed_graphs_data_fwd, bed_graphs_data_rev = bed_graphs_data_rev, intron_info = selected_intron_info_df, nr_of_cores = nr_of_cores_for_parallel_computing)
   names(intron_coverage_data) <- chromosome_names
+  
   cat("Intron coverage data collected.\n")
   intron_coverage_data_all <- do.call(rbind, intron_coverage_data)
   save(intron_coverage_data_all, file = str_glue("{outfolder_slope_calculations}intron_coverage_data_all.RData"))
@@ -277,12 +279,21 @@ calculate_slopes <- function(bedgraph_folder,
   intron_coverage_slope_lms_row_bound <- do.call(rbind, intron_coverage_slope_lms)
   cat("Linear models fitted.\n")
   
-  intron_coverage_slope_lms_row_bound <- intron_coverage_slope_lms_row_bound %>%
-    mutate(adjusted_p_value = p.adjust(p_value, method = "BH")) %>%
-    relocate(adjusted_p_value, .after = p_value)  
-  cat("Adjusted p_values BH method.\n")
+  #intron_coverage_slope_lms_row_bound <- intron_coverage_slope_lms_row_bound %>%
+  #  mutate(adjusted_p_value = p.adjust(p_value, method = "BH")) %>%
+  #  relocate(adjusted_p_value, .after = p_value)  
+  #cat("Adjusted p_values BH method.\n")
   
   
   write.table(intron_coverage_slope_lms_row_bound, file = str_glue("{outfolder_slope_calculations}intron_coverage_slope_lms.tsv"), row.names = FALSE, sep = "\t", quote = FALSE)
+  
+  #FILTERING
+  intron_coverage_slope_lms_row_bound_length_filtered       <- dplyr::filter(intron_coverage_slope_lms_row_bound, 
+                                                                             end_position_measured-start_position_measured>1000)
+
+
+  cat("Filtered (intron >1000)...\n")
+  write.table(intron_coverage_slope_lms_row_bound_final_filtered, file = str_glue("{outfolder_slope_calculations}intron_coverage_slope_lms_filtered.tsv"), row.names = FALSE, sep = "\t", quote = FALSE)
+  
   cat("Slope calculation process completed and results saved in",outfolder_slope_calculations,".\n")
 }

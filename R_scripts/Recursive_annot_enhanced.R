@@ -20,6 +20,20 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
   defined_introns_file <- str_glue("{defined_introns_folder}/*intron.bed")
   
   message("Extracting splice junction files...")
+  
+  # Function to process and add extracted filename part to each dataframe
+  process_splice_file <- function(file) {
+    # Read the file
+    data <- fread(file, header = FALSE)
+
+    data <- filter_splicejunct_QC(data)
+
+    # Extract the part of the filename before .out.tab and add as a new column
+    filename_part <- sub("\\.out\\.tab$", "", basename(file))
+    data <- mutate(data, filename = filename_part)
+    return(data)
+  }
+  
   # Extract all splice junction files
   splice_files <- list.files(
     path = sj_tab_folder,
@@ -29,12 +43,12 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
   )
   
   message("Processing splice junction files...")
+  
   # Process all splice junction files
-  splice_data <- lapply(splice_files, function(file) {
-    fread(file, header = FALSE) %>%
-      filter_splicejunct_QC()
-  }) %>%
-    bind_rows() %>%
+  splice_data <- lapply(splice_files, process_splice_file) %>%
+    bind_rows()
+  
+  splice_data <- splice_data %>%
     mutate(supported_by_samples = 1) %>%
     group_by(V1, V2, V3, V4, V5, V6) %>%
     summarise(
@@ -42,8 +56,10 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
       max_unique_mapping_count = max(V7),
       min_multi_mapping_count = min(V8),
       max_overhang = max(V9),
+      filename = paste(unique(filename), collapse = "; ")
     ) %>%
-    mutate(supported_by_samples = supported_by_samples/length(splice_files))
+    mutate(supported_by_samples = supported_by_samples / length(splice_files))
+  
 
   # Write the filtered splice junctions to an output file
   filterd_sj_outfile_name <- str_glue("{sj_annot_out_folder}/all_samples_sj.tsv")
@@ -68,6 +84,7 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
     "max_unique_mapping_count",
     "min_multi_mapping_count",
     "max_overhang",
+    "filename",
     "gtf_refrnce_chromosome",
     "start_position_gtf_refrnce",
     "end_position_gtf_refrnce",
@@ -76,8 +93,8 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
     "strand_gtf_refrnce"
   )
   
-  junction_data <- mutate(junction_data, length = end_position_gtf_refrnce - start_position_gtf_refrnce)
-  
+  junction_data <- mutate(junction_data, length_reference = end_position_gtf_refrnce - start_position_gtf_refrnce)
+
   junction_data <- junction_data %>%
     mutate(strand_measured = case_when(
       strand_measured == 1 ~ "+",
@@ -146,4 +163,5 @@ annotate_splice_junctions <- function(sj_tab_folder        = cwd,
   )
 
 }
- 
+
+
